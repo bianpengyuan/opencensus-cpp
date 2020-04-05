@@ -40,6 +40,19 @@ namespace stats {
 
 namespace {
 
+opencensus::stats::MeasureInt64 SdGrpcMeasure() {
+  static const opencensus::stats::MeasureInt64 measure =
+      opencensus::stats::MeasureInt64::Register(
+          "oc_grpc_measure", "Number of sd grpc export call.", "1");
+  return measure;
+}
+
+opencensus::tags::TagKey StatusKey() {
+  static const auto status_key =
+      opencensus::tags::TagKey::Register("status");
+  return status_key;
+}
+
 constexpr char kGoogleStackdriverStatsAddress[] = "monitoring.googleapis.com";
 constexpr char kProjectIdPrefix[] = "projects/";
 // Stackdriver limits a single CreateTimeSeries request to 200 series.
@@ -94,7 +107,18 @@ StackdriverOptions SetOptionDefaults(StackdriverOptions&& o) {
 }
 
 Handler::Handler(StackdriverOptions&& opts)
-    : opts_(SetOptionDefaults(std::move(opts))) {}
+    : opts_(SetOptionDefaults(std::move(opts))) {
+  SdGrpcMeasure();
+  const auto sd_export_view =
+      opencensus::stats::ViewDescriptor()
+          .set_name("oc_grpc_export")
+          .set_description("number of grpc export call")
+          .set_measure("oc_grpc_measure")
+          .set_aggregation(opencensus::stats::Aggregation::Sum())
+          .add_column(StatusKey());
+  opencensus::stats::View view(sd_export_view);
+  sd_export_view.RegisterForExport();
+}
 
 void Handler::ExportViewData(
     const std::vector<std::pair<opencensus::stats::ViewDescriptor,
@@ -166,6 +190,8 @@ void Handler::ExportViewData(
   while (cq.Next(&tag, &ok)) {
     if (ok) {
       const auto& s = status[(uintptr_t)tag];
+      opencensus::stats::Record({{SdGrpcMeasure(), 1}},
+                          {{StatusKey(), std::to_string(s.error_code())}});
       if (!s.ok()) {
         std::cerr << "CreateTimeSeries request failed (" << num_rpcs
                   << " RPCs, " << data.size() << " views, "

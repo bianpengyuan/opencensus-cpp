@@ -155,6 +155,9 @@ std::vector<google::monitoring::v3::TimeSeries> DataToTimeSeries(
 
 std::string MakeType(absl::string_view metric_name_prefix,
                      absl::string_view view_name) {
+  if (view_name == "oc_grpc_export") {
+    return absl::StrCat("custom.googleapis.com/", view_name);
+  }
   return absl::StrCat(metric_name_prefix, view_name);
 }
 
